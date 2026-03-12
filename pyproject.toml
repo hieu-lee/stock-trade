@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vn30-strategy"
+version = "0.1.0"
+description = "VN30 monthly alpha research and strategy application."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "joblib",
+  "matplotlib",
+  "numpy",
+  "optuna",
+  "pandas",
+  "plotly",
+  "pyarrow",
+  "quantstats",
+  "scikit-learn",
+  "scipy",
+  "seaborn",
+  "streamlit",
+  "ta",
+  "tenacity",
+  "vnstock",
+  "xgboost",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["vn30_strategy*", "trade60_app*"]
