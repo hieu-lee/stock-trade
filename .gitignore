@@ -11,8 +11,10 @@ __pycache__/
 
 vnstock/
 
-artifacts/
-data/
+/artifacts/
+/data/
 stock_signal_project/outputs/
+stock_signal_project/artifacts/
 trade60_app/data/
+vn30_strategy/data/
 

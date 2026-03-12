@@ -1,0 +1,17 @@
+{
+  "entry_threshold": 0.5,
+  "entry_quantile": 0.96,
+  "exit_threshold": 0.42,
+  "regime_threshold": 0.4,
+  "max_positions": 5,
+  "max_holding_days": 40,
+  "min_holding_days": 2,
+  "stop_loss_pct": 0.07,
+  "take_profit_pct": 0.24,
+  "hold_alpha_buffer": 0.08,
+  "rank_keep_fraction": 1.0,
+  "defensive_trim_fraction": 0.55,
+  "weak_alpha_trim_fraction": 0.5,
+  "profit_trim_fraction": 0.7,
+  "objective_score": 2.987299853415642
+}

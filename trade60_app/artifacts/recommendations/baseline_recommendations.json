@@ -1,0 +1,38 @@
+{
+  "portfolio_mode": "baseline_no_holdings",
+  "latest_signal_date": "2026-03-11T00:00:00",
+  "cash_after_actions": 45046.95999999999,
+  "notes": [
+    "Defensive exposure mode is active, so the system will size fewer positions and keep extra cash."
+  ],
+  "actions": [
+    {
+      "action": "BUY",
+      "symbol": "PVS",
+      "quantity": 428,
+      "reference_price": 42.7,
+      "alpha_probability": 0.6172432502724523,
+      "regime_probability": 0.5234074762518861,
+      "rationale": "trading above its 50-day trend"
+    },
+    {
+      "action": "BUY",
+      "symbol": "STB",
+      "quantity": 281,
+      "reference_price": 65.0,
+      "alpha_probability": 0.626335487048369,
+      "regime_probability": 0.5234074762518861,
+      "rationale": "beating VNINDEX over the last month, trading above its 50-day trend"
+    },
+    {
+      "action": "BUY",
+      "symbol": "TNG",
+      "quantity": 781,
+      "reference_price": 23.4,
+      "alpha_probability": 0.6193714815258534,
+      "regime_probability": 0.5234074762518861,
+      "rationale": "beating VNINDEX over the last month, trading above its 50-day trend"
+    }
+  ],
+  "position_status": []
+}

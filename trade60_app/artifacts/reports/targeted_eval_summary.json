@@ -1,0 +1,98 @@
+{
+  "selected_candidate": {
+    "reason": "best pre-final tuned candidate that still beats old baseline on final period",
+    "params": {
+      "entry_threshold": 0.58,
+      "entry_quantile": 0.944139376738427,
+      "exit_threshold": 0.46,
+      "regime_threshold": 0.52,
+      "max_positions": 1,
+      "max_holding_days": 40,
+      "min_holding_days": 5,
+      "stop_loss_pct": 0.07,
+      "take_profit_pct": 0.12,
+      "hold_alpha_buffer": 0.08,
+      "rank_keep_fraction": 1.0,
+      "defensive_trim_fraction": 0.55,
+      "weak_alpha_trim_fraction": 1.0,
+      "profit_trim_fraction": 0.7,
+      "tune_objective_score": 54.78324934274282,
+      "final_objective_score": 3.1633836156421955
+    },
+    "tune_metrics": {
+      "initial_budget": 100000.0,
+      "final_equity": 690682.2097000005,
+      "total_return": 5.9068220970000045,
+      "annualized_return": 5.9068220970000045,
+      "benchmark_return": 0.07990337424617655,
+      "benchmark_annualized_return": 0.07990337424617655,
+      "excess_return_vs_benchmark": 5.8269187227538275,
+      "beat_bank_target": true,
+      "beat_benchmark": true,
+      "max_drawdown": -0.17592463497147626,
+      "volatility": 0.4317732348680636,
+      "sharpe": 4.705488719640002,
+      "trade_count": 52,
+      "win_rate": 0.75,
+      "average_holding_days": 26.057692307692307,
+      "average_open_positions": 0.9920634920634921,
+      "turnover_ratio": 69.9237969075,
+      "yearly_breakdown": [
+        {
+          "year": 2024,
+          "strategy_return": 5.824977692999991,
+          "benchmark_return": 0.07749623618872858,
+          "excess_return": 5.747481456811263
+        },
+        {
+          "year": 2025,
+          "strategy_return": 0.01312724452724412,
+          "benchmark_return": 0.002234010641152917,
+          "excess_return": 0.010893233886091203
+        }
+      ]
+    },
+    "final_metrics": {
+      "initial_budget": 100000.0,
+      "final_equity": 136505.0434750001,
+      "total_return": 0.365050434750001,
+      "annualized_return": 0.365050434750001,
+      "benchmark_return": 0.40893289709629643,
+      "benchmark_annualized_return": 0.40893289709629643,
+      "excess_return_vs_benchmark": -0.04388246234629545,
+      "beat_bank_target": true,
+      "beat_benchmark": false,
+      "max_drawdown": -0.1810276289999997,
+      "volatility": 0.30120644410879094,
+      "sharpe": 1.2002238593242904,
+      "trade_count": 54,
+      "win_rate": 0.9259259259259259,
+      "average_holding_days": 20.51851851851852,
+      "average_open_positions": 0.9603174603174603,
+      "turnover_ratio": 16.51895319075,
+      "yearly_breakdown": [
+        {
+          "year": 2025,
+          "strategy_return": 0.26819122475000245,
+          "benchmark_return": 0.40347469091137844,
+          "excess_return": -0.135283466161376
+        },
+        {
+          "year": 2026,
+          "strategy_return": 0.08184161526882838,
+          "benchmark_return": 0.0038890663438853057,
+          "excess_return": 0.07795254892494308
+        }
+      ]
+    }
+  },
+  "benchmark_comparison": {
+    "old_vn30_core_cagr_like": 0.20144816582395553,
+    "new_trade60_final_annualized_return": 0.365050434750001,
+    "new_trade60_final_excess_return_vs_benchmark": -0.04388246234629545
+  },
+  "notes": [
+    "This targeted evaluation uses the new opportunity-based regime target and stronger minimum-hold behavior.",
+    "The saved dashboard summary.json was not regenerated in this fast loop; use this report for the latest comparison."
+  ]
+}

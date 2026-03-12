@@ -1,0 +1,4 @@
+action,symbol,quantity,reference_price,alpha_probability,regime_probability,rationale
+BUY,PVS,428,42.7,0.6172432502724523,0.5234074762518861,trading above its 50-day trend
+BUY,STB,281,65.0,0.626335487048369,0.5234074762518861,"beating VNINDEX over the last month, trading above its 50-day trend"
+BUY,TNG,781,23.4,0.6193714815258534,0.5234074762518861,"beating VNINDEX over the last month, trading above its 50-day trend"
