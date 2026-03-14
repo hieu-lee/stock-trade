@@ -1,9 +1,11 @@
 .DS_Store
+.vscode/
 .venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.egg-info/
 
 .pytest_cache/
 .mypy_cache/
@@ -17,4 +19,6 @@ stock_signal_project/outputs/
 stock_signal_project/artifacts/
 trade60_app/data/
 vn30_strategy/data/
+/really-dope-trading-bot/artifacts/
+/really-dope-trading-bot/data/
 

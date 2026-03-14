@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "really-dope-trading-bot"
+version = "0.1.0"
+description = "Python-only VN60 daily trading bot with portfolio optimization and a button-driven UI."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "cvxpy>=1.5.0",
+  "duckdb>=1.1.3",
+  "fastapi>=0.115.0",
+  "joblib>=1.3.0",
+  "numpy>=1.26.0",
+  "optuna>=3.6.0",
+  "osqp>=0.6.7",
+  "pandas>=2.2.0",
+  "pyarrow>=16.0.0",
+  "pydantic>=2.8.0",
+  "scikit-learn>=1.5.0",
+  "streamlit>=1.36.0",
+  "uvicorn>=0.30.0",
+  "vnstock>=3.0.0",
+  "xgboost>=2.1.0",
+  "yfinance>=0.2.54",
+]
+
+[project.scripts]
+rdtb-train = "rdtb.cli:train_cli"
+rdtb-decide = "rdtb.cli:decide_cli"
+rdtb-ui = "rdtb.cli:ui_cli"
+rdtb-api = "rdtb.cli:api_cli"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["rdtb*"]
