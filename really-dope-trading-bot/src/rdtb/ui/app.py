@@ -174,6 +174,22 @@ def _build_transaction_preview(transactions: pd.DataFrame, starting_cash: float)
     return preview, latest_market_date
 
 
+def _sync_saved_recommendation() -> None:
+    if not config.latest_decision_path.exists():
+        return
+    latest_mtime = config.latest_decision_path.stat().st_mtime
+    current_mtime = st.session_state.get("rdtb_result_mtime")
+    if current_mtime == latest_mtime:
+        return
+    st.session_state.rdtb_result = read_json(config.latest_decision_path)
+    st.session_state.rdtb_result_mtime = latest_mtime
+
+
+def _clear_displayed_recommendation() -> None:
+    st.session_state.pop("rdtb_result", None)
+    st.session_state.pop("rdtb_result_mtime", None)
+
+
 st.markdown(
     """
     <style>
@@ -226,6 +242,7 @@ st.session_state.rdtb_holdings = _normalize_holdings(st.session_state.rdtb_holdi
 if "rdtb_transactions" not in st.session_state:
     st.session_state.rdtb_transactions = _empty_transactions()
 st.session_state.rdtb_transactions = _normalize_transactions(st.session_state.rdtb_transactions)
+_sync_saved_recommendation()
 
 metrics_cols = st.columns(5)
 if summary:
@@ -254,7 +271,9 @@ with top_left:
     if st.button("Run strict training pipeline", width="stretch"):
         with st.spinner("Training the VN60 system..."):
             summary = train_system(config=config, refresh_data=refresh_train)
+        _clear_displayed_recommendation()
         st.success("Training pipeline completed.")
+        st.info("Run `Get daily decisions` to refresh the table with the newly trained model.")
         st.json(summary)
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -415,6 +434,9 @@ with action_col:
                 starting_cash=cash if input_mode == "Transactions" else None,
             )
         st.session_state.rdtb_result = recommendation
+        st.session_state.rdtb_result_mtime = (
+            config.latest_decision_path.stat().st_mtime if config.latest_decision_path.exists() else None
+        )
     st.markdown("</div>", unsafe_allow_html=True)
 
 if input_mode == "Transactions":
