@@ -16,7 +16,7 @@ class TradingBotConfig:
     symbols: tuple[str, ...] = field(default_factory=lambda: tuple(VN60_SYMBOLS))
     benchmark_symbols: tuple[str, ...] = field(default_factory=lambda: tuple(DEFAULT_BENCHMARKS))
     external_symbols: tuple[str, ...] = ("SPY", "QQQ", "EEM", "FXI", "TLT", "GLD", "UUP")
-    primary_price_source: str = "VCI"
+    primary_price_source: str = "FIREANT"
     finance_source: str = "VCI"
     use_company_metadata_features: bool = False
     use_fireant_flow_features: bool = True

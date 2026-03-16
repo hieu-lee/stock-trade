@@ -13,6 +13,8 @@ from rdtb.data.adapters.yfinance_adapter import YFinanceDailyAdapter
 from rdtb.data.store import DuckDBMarketStore
 from rdtb.utils import ProgressCallback, report_progress
 
+PRICE_COLUMNS = ("open", "high", "low", "close")
+
 
 @dataclass(slots=True)
 class DataBundle:
@@ -32,7 +34,8 @@ class MarketDataCollector:
         self,
         config: TradingBotConfig,
         progress_callback: ProgressCallback | None = None,
-        adapter: VnstockDailyAdapter | None = None,
+        adapter: FireAntHistoryAdapter | None = None,
+        benchmark_adapter: VnstockDailyAdapter | None = None,
         fundamentals_adapter: VnstockFundamentalsAdapter | None = None,
         external_adapter: YFinanceDailyAdapter | None = None,
         flow_adapter: FireAntHistoryAdapter | None = None,
@@ -40,7 +43,8 @@ class MarketDataCollector:
     ) -> None:
         self.config = config
         self.progress_callback = progress_callback
-        self.adapter = adapter or VnstockDailyAdapter(source=config.primary_price_source)
+        self.adapter = adapter or FireAntHistoryAdapter()
+        self.benchmark_adapter = benchmark_adapter or VnstockDailyAdapter(source=config.finance_source)
         self.fundamentals_adapter = fundamentals_adapter or VnstockFundamentalsAdapter(source=config.finance_source)
         self.external_adapter = external_adapter or YFinanceDailyAdapter()
         self.flow_adapter = flow_adapter or FireAntHistoryAdapter()
@@ -54,19 +58,31 @@ class MarketDataCollector:
             symbols=self.config.benchmark_symbols,
             target_dir=self.config.benchmark_dir,
             fallback_kind="benchmarks",
+            use_benchmark_adapter=True,
             refresh=refresh,
             progress_start=0.0,
             progress_end=0.08,
         )
-        external_markets = self.collect_external_markets(refresh=refresh, progress_start=0.08, progress_end=0.18)
+        external_markets = self.collect_external_markets(
+            refresh=refresh,
+            progress_start=0.08,
+            progress_end=0.18,
+            incremental=refresh,
+        )
         fundamentals = self.collect_fundamentals(refresh=refresh, progress_start=0.18, progress_end=0.30)
         company_metadata = self.collect_company_metadata(refresh=refresh, progress_start=0.30, progress_end=0.36)
-        flow_history = self.collect_flow_history(refresh=refresh, progress_start=0.36, progress_end=0.44)
+        flow_history = self.collect_flow_history(
+            refresh=refresh,
+            progress_start=0.36,
+            progress_end=0.44,
+            incremental=refresh,
+        )
         event_history = self.collect_event_history(refresh=refresh, progress_start=0.44, progress_end=0.50)
         prices = self.collect_symbol_set(
             symbols=self.config.symbols,
             target_dir=self.config.price_dir,
             fallback_kind="prices",
+            use_benchmark_adapter=False,
             refresh=refresh,
             progress_start=0.50,
             progress_end=1.00,
@@ -103,6 +119,7 @@ class MarketDataCollector:
             symbols=self.config.benchmark_symbols,
             target_dir=self.config.benchmark_dir,
             fallback_kind="benchmarks",
+            use_benchmark_adapter=True,
             refresh=refresh,
             progress_start=0.0,
             progress_end=0.10,
@@ -136,6 +153,7 @@ class MarketDataCollector:
                     symbols=self.config.symbols,
                     target_dir=self.config.price_dir,
                     fallback_kind="prices",
+                    use_benchmark_adapter=False,
                     refresh=True,
                     progress_start=0.48,
                     progress_end=1.00,
@@ -147,6 +165,7 @@ class MarketDataCollector:
                 symbols=self.config.symbols,
                 target_dir=self.config.price_dir,
                 fallback_kind="prices",
+                use_benchmark_adapter=False,
                 refresh=False,
                 progress_start=0.48,
                 progress_end=1.00,
@@ -192,6 +211,7 @@ class MarketDataCollector:
         symbols: tuple[str, ...],
         target_dir: Path,
         fallback_kind: str,
+        use_benchmark_adapter: bool,
         refresh: bool,
         progress_start: float,
         progress_end: float,
@@ -211,9 +231,14 @@ class MarketDataCollector:
                 remote = pd.read_parquet(path)
             elif path.exists() and refresh:
                 cached = pd.read_parquet(path)
-                remote = self._refresh_history(symbol=symbol, cached=cached)
+                remote = self._refresh_history(symbol=symbol, cached=cached, use_benchmark_adapter=use_benchmark_adapter)
             else:
-                remote = self._fetch_full_history(symbol=symbol)
+                remote = self._fetch_full_history(symbol=symbol, use_benchmark_adapter=use_benchmark_adapter)
+            remote = self._normalize_frame(
+                remote,
+                symbol=symbol,
+                default_source=self._default_history_source(use_benchmark_adapter),
+            )
             merged = self._merge_histories([seed, manual, remote])
             if merged.empty:
                 continue
@@ -238,8 +263,12 @@ class MarketDataCollector:
         grouped["listing_year"] = pd.to_datetime(grouped["listing_date"]).dt.year
         return grouped
 
-    def _fetch_full_history(self, symbol: str) -> pd.DataFrame:
-        return self.adapter.fetch_history(symbol=symbol, start=self.config.start_date, end=self.config.end_date)
+    def _fetch_full_history(self, symbol: str, use_benchmark_adapter: bool = False) -> pd.DataFrame:
+        return self._history_adapter(use_benchmark_adapter).fetch_history(
+            symbol=symbol,
+            start=self.config.start_date,
+            end=self.config.end_date,
+        )
 
     def collect_external_markets(
         self,
@@ -447,16 +476,39 @@ class MarketDataCollector:
             return pd.read_parquet(self.config.events_path)
         return self.collect_event_history(refresh=True, progress_start=progress_start, progress_end=progress_end)
 
-    def _refresh_history(self, symbol: str, cached: pd.DataFrame) -> pd.DataFrame:
+    def _history_adapter(self, use_benchmark_adapter: bool):
+        return self.benchmark_adapter if use_benchmark_adapter else self.adapter
+
+    def _default_history_source(self, use_benchmark_adapter: bool) -> str:
+        if use_benchmark_adapter:
+            source = getattr(self.benchmark_adapter, "source", self.config.finance_source)
+        else:
+            source = getattr(self.adapter, "source", self.config.primary_price_source)
+        return str(source).upper()
+
+    def _refresh_history(self, symbol: str, cached: pd.DataFrame, use_benchmark_adapter: bool = False) -> pd.DataFrame:
+        default_source = self._default_history_source(use_benchmark_adapter)
         if cached.empty:
-            return self._fetch_full_history(symbol)
-        normalized = self._normalize_frame(cached, symbol=symbol)
+            return self._normalize_frame(
+                self._fetch_full_history(symbol, use_benchmark_adapter=use_benchmark_adapter),
+                symbol=symbol,
+                default_source=default_source,
+            )
+        normalized = self._normalize_frame(cached, symbol=symbol, default_source=default_source)
         last_date = pd.to_datetime(normalized["date"]).max()
         target_end = pd.Timestamp(self.config.end_date).normalize()
         if last_date.normalize() >= target_end:
             return normalized
         refresh_start = (last_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-        recent = self.adapter.fetch_history(symbol=symbol, start=refresh_start, end=self.config.end_date)
+        recent = self._normalize_frame(
+            self._history_adapter(use_benchmark_adapter).fetch_history(
+                symbol=symbol,
+                start=refresh_start,
+                end=self.config.end_date,
+            ),
+            symbol=symbol,
+            default_source=default_source,
+        )
         return self._merge_histories([normalized, recent])
 
     def _refresh_external_history(self, symbol: str, cached: pd.DataFrame) -> pd.DataFrame:
@@ -490,16 +542,23 @@ class MarketDataCollector:
         flow_columns = {"symbol", "date", "open", "high", "low", "close", "volume"}
         if not flow_columns.issubset(flow_history.columns):
             return pd.DataFrame(columns=["symbol", "date", "open", "high", "low", "close", "volume"])
-        flow_prices = flow_history[["symbol", "date", "open", "high", "low", "close", "volume"]].copy()
-        flow_prices = flow_prices.dropna(subset=["date", "open", "high", "low", "close"]).sort_values(["symbol", "date"]).reset_index(drop=True)
+        selected_columns = ["symbol", "date", "open", "high", "low", "close", "volume"]
+        if "source" in flow_history.columns:
+            selected_columns.append("source")
+        flow_prices = flow_history[selected_columns].copy()
+        flow_prices = self._normalize_frame(flow_prices, default_source="FIREANT")
         if flow_prices.empty:
             return flow_prices
         if self.config.prices_path.exists():
-            cached_prices = pd.read_parquet(self.config.prices_path)
+            cached_prices = self._normalize_frame(
+                pd.read_parquet(self.config.prices_path),
+                default_source=self._default_history_source(use_benchmark_adapter=False),
+            )
             prices = self._merge_histories([cached_prices, flow_prices])
         else:
             prices = flow_prices
         prices.to_parquet(self.config.prices_path, index=False)
+        self._write_symbol_histories(prices, self.config.price_dir)
         return prices
 
     def _load_manual_history(self, symbol: str, kind: str) -> pd.DataFrame:
@@ -536,7 +595,12 @@ class MarketDataCollector:
                 return normalized
         return pd.DataFrame(columns=["symbol", "date", "open", "high", "low", "close", "volume", "source"])
 
-    def _normalize_frame(self, frame: pd.DataFrame, symbol: str | None = None) -> pd.DataFrame:
+    def _normalize_frame(
+        self,
+        frame: pd.DataFrame,
+        symbol: str | None = None,
+        default_source: str | None = None,
+    ) -> pd.DataFrame:
         if frame.empty:
             return pd.DataFrame(columns=["symbol", "date", "open", "high", "low", "close", "volume", "source"])
         normalized = frame.rename(columns={"time": "date"}).copy()
@@ -545,7 +609,7 @@ class MarketDataCollector:
                 raise ValueError("Historical data frame is missing a `symbol` column.")
             normalized["symbol"] = symbol
         if "source" not in normalized.columns:
-            normalized["source"] = self.config.primary_price_source.upper()
+            normalized["source"] = (default_source or self.config.primary_price_source).upper()
         normalized["date"] = pd.to_datetime(normalized["date"]).dt.tz_localize(None)
         for column in ["open", "high", "low", "close", "volume"]:
             if column not in normalized.columns:
@@ -553,15 +617,20 @@ class MarketDataCollector:
             normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
         normalized = normalized[["symbol", "date", "open", "high", "low", "close", "volume", "source"]]
         normalized = normalized.dropna(subset=["date", "open", "high", "low", "close"])
+        normalized = normalized.loc[(normalized[list(PRICE_COLUMNS)] > 0).all(axis=1)].copy()
+        normalized = self._promote_legacy_thousand_unit_quotes(normalized)
+        normalized = self._repair_internal_price_scale_jumps(normalized)
         return normalized.drop_duplicates(subset=["symbol", "date"], keep="last").sort_values("date").reset_index(drop=True)
 
     def _merge_histories(self, frames: list[pd.DataFrame]) -> pd.DataFrame:
-        usable = [frame for frame in frames if frame is not None and not frame.empty]
+        usable = [frame.copy() for frame in frames if frame is not None and not frame.empty]
         if not usable:
             return pd.DataFrame(columns=["symbol", "date", "open", "high", "low", "close", "volume", "source"])
         combined = pd.concat(usable, ignore_index=True)
+        combined["date"] = pd.to_datetime(combined["date"]).dt.tz_localize(None)
         combined = combined.drop_duplicates(subset=["symbol", "date"], keep="last")
-        return combined.sort_values(["symbol", "date"]).reset_index(drop=True)
+        combined = combined.sort_values(["symbol", "date"]).reset_index(drop=True)
+        return self._repair_internal_price_scale_jumps(combined)
 
     @staticmethod
     def _merge_symbol_date_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
@@ -572,6 +641,73 @@ class MarketDataCollector:
         combined["date"] = pd.to_datetime(combined["date"]).dt.tz_localize(None)
         combined = combined.drop_duplicates(subset=["symbol", "date"], keep="last")
         return combined.sort_values(["symbol", "date"]).reset_index(drop=True)
+
+    @staticmethod
+    def _write_symbol_histories(frame: pd.DataFrame, target_dir: Path) -> None:
+        if frame.empty or "symbol" not in frame.columns:
+            return
+        for symbol, part in frame.groupby("symbol", sort=False):
+            if not symbol:
+                continue
+            part.sort_values("date").reset_index(drop=True).to_parquet(target_dir / f"{symbol}.parquet", index=False)
+
+    @staticmethod
+    def _promote_legacy_thousand_unit_quotes(frame: pd.DataFrame) -> pd.DataFrame:
+        required = {"symbol", *PRICE_COLUMNS}
+        if frame.empty or not required.issubset(frame.columns):
+            return frame
+        promoted_parts: list[pd.DataFrame] = []
+        for _, part in frame.sort_values(["symbol", "date"]).groupby("symbol", sort=False):
+            current = part.copy()
+            closes = current["close"].dropna()
+            if closes.empty:
+                promoted_parts.append(current)
+                continue
+            # Legacy vnstock equity files are quoted in thousands of VND; FireAnt uses full VND.
+            if float(closes.max()) < 1000.0:
+                current.loc[:, list(PRICE_COLUMNS)] = current.loc[:, list(PRICE_COLUMNS)].astype(float) * 1000.0
+            promoted_parts.append(current)
+        if not promoted_parts:
+            return frame
+        promoted = pd.concat(promoted_parts, ignore_index=True)
+        return promoted.sort_values(["symbol", "date"]).reset_index(drop=True)
+
+    @classmethod
+    def _repair_internal_price_scale_jumps(cls, frame: pd.DataFrame) -> pd.DataFrame:
+        required = {"symbol", "date", *PRICE_COLUMNS}
+        if frame.empty or not required.issubset(frame.columns):
+            return frame
+        repaired_parts: list[pd.DataFrame] = []
+        for _, part in frame.sort_values(["symbol", "date"]).groupby("symbol", sort=False):
+            current = part.copy().reset_index(drop=True)
+            prices = current[list(PRICE_COLUMNS)].to_numpy(dtype=float, copy=True)
+            multiplier = 1.0
+            next_close: float | None = None
+            for idx in range(len(current) - 1, -1, -1):
+                adjusted_close = float(prices[idx, 3]) * multiplier
+                if next_close is not None and next_close > 0:
+                    step_multiplier = cls._scale_multiplier_from_ratio(adjusted_close / next_close)
+                    if step_multiplier != 1.0:
+                        multiplier *= step_multiplier
+                        adjusted_close = float(prices[idx, 3]) * multiplier
+                prices[idx, :] = prices[idx, :] * multiplier
+                next_close = adjusted_close
+            current.loc[:, list(PRICE_COLUMNS)] = prices
+            repaired_parts.append(current)
+        if not repaired_parts:
+            return frame
+        repaired = pd.concat(repaired_parts, ignore_index=True)
+        return repaired.sort_values(["symbol", "date"]).reset_index(drop=True)
+
+    @staticmethod
+    def _scale_multiplier_from_ratio(ratio: float) -> float:
+        if not pd.notna(ratio) or ratio <= 0:
+            return 1.0
+        if 100.0 <= ratio <= 10000.0:
+            return 0.001
+        if 0.0001 <= ratio <= 0.01:
+            return 1000.0
+        return 1.0
 
 
 def collect_market_data(
