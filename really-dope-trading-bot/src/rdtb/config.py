@@ -21,16 +21,16 @@ class TradingBotConfig:
     use_company_metadata_features: bool = False
     use_fireant_flow_features: bool = True
     use_event_features: bool = True
-    commission_bps: float = 10.0
-    slippage_bps: float = 15.0
+    commission_bps: float = 0.0
+    slippage_bps: float = 7.5
     buy_transaction_fee_bps: float = 3.0
     sell_transaction_fee_bps: float = 13.0
     buy_settlement_days: int = 3
     sell_settlement_days: int = 2
     initial_cash: float = 1_000_000_000.0
     lot_size: int = 100
-    max_positions: int = 8
-    max_weight: float = 0.18
+    max_positions: int = 6
+    max_weight: float = 0.24
     min_trade_weight_delta: float = 0.015
     hold_buffer: float = 0.02
     add_buffer: float = 0.05
@@ -45,25 +45,38 @@ class TradingBotConfig:
     regime_horizon_days: int = 20
     lookahead_days: tuple[int, ...] = (5, 10, 20)
     alpha_target_quantile: float = 0.80
+    alpha_target_short_weight: float = 0.35
+    regime_target_return_threshold: float = 0.03
+    regime_target_drawdown_threshold: float = -0.06
     quarterly_report_lag_days: int = 45
     annual_report_lag_days: int = 60
-    optimizer_risk_penalty: float = 0.40
+    optimizer_risk_penalty: float = 0.38
     optimizer_turnover_penalty: float = 0.20
-    optimizer_concentration_penalty: float = 0.06
-    optimizer_cash_floor: float = 0.08
+    optimizer_concentration_penalty: float = 0.03
+    optimizer_cash_floor: float = 0.12
+    optimizer_defensive_gross_exposure: float = 0.26
+    optimizer_min_gross_exposure: float = 0.025
     optimizer_backend: str = "convex"
-    regime_risk_on_threshold: float = 0.55
-    regime_defensive_threshold: float = 0.45
-    risk_reject_threshold: float = 0.55
-    buy_score_threshold: float = 0.58
-    add_score_threshold: float = 0.68
-    exit_score_threshold: float = 0.44
-    trim_score_threshold: float = 0.50
-    deployment_min_year_return: float = 0.30
+    regime_risk_on_threshold: float = 0.57
+    regime_defensive_threshold: float = 0.30
+    regime_transition_slope: float = 8.0
+    risk_reject_threshold: float = 0.67
+    risk_exit_threshold: float = 0.78
+    regime_exit_buffer: float = 0.03
+    atr_stop_multiple: float = 2.0
+    buy_score_threshold: float = 0.61
+    add_score_threshold: float = 0.66
+    exit_score_threshold: float = 0.49
+    trim_score_threshold: float = 0.53
+    deployment_min_year_return: float = 0.20
+    aspirational_year_return: float = 0.30
     deployment_max_drawdown: float = -0.15
     development_start_year: int = 2006
     development_end_year: int = 2023
     final_test_years: tuple[int, ...] = (2024, 2025)
+    validation_holdout_years: int = 2
+    validation_holdout_step_years: int = 2
+    validation_max_holdout_windows: int = 5
     paper_trade_year: int = 2026
     fold_validation_years: int = 1
     fold_step_years: int = 1
@@ -72,9 +85,35 @@ class TradingBotConfig:
     fold_embargo_days: int = 20
     alpha_half_life_years: float = 25.0
     risk_half_life_years: float = 25.0
-    regime_half_life_years: float = 20.0
+    regime_half_life_years: float = 8.0
     optuna_trials: int = 8
     optuna_timeout_seconds: int = 180
+    regressor_n_estimators: int = 350
+    regressor_learning_rate: float = 0.04
+    regressor_max_depth: int = 5
+    regressor_subsample: float = 0.85
+    regressor_colsample_bytree: float = 0.85
+    regressor_reg_alpha: float = 0.02
+    regressor_reg_lambda: float = 1.0
+    classifier_n_estimators: int = 250
+    classifier_learning_rate: float = 0.05
+    classifier_max_depth: int = 4
+    classifier_subsample: float = 0.85
+    classifier_colsample_bytree: float = 0.85
+    classifier_reg_alpha: float = 0.01
+    classifier_reg_lambda: float = 1.0
+    regime_classifier_n_estimators: int = 280
+    regime_classifier_learning_rate: float = 0.05
+    regime_classifier_max_depth: int = 4
+    regime_classifier_subsample: float = 0.85
+    regime_classifier_colsample_bytree: float = 0.85
+    regime_classifier_reg_alpha: float = 0.01
+    regime_classifier_reg_lambda: float = 1.0
+    regime_use_market_only_features: bool = False
+    auto_search_trials: int = 36
+    auto_search_timeout_seconds: int = 1_200
+    auto_search_coarse_holdout_count: int = 4
+    auto_search_finalist_count: int = 8
     random_state: int = 42
 
     def __post_init__(self) -> None:
@@ -195,6 +234,22 @@ class TradingBotConfig:
     @property
     def training_summary_path(self) -> Path:
         return self.reports_dir / "training_summary.json"
+
+    @property
+    def validation_matrix_path(self) -> Path:
+        return self.reports_dir / "validation_matrix.json"
+
+    @property
+    def validation_matrix_markdown_path(self) -> Path:
+        return self.reports_dir / "validation_matrix.md"
+
+    @property
+    def constant_search_path(self) -> Path:
+        return self.reports_dir / "constant_search.json"
+
+    @property
+    def constant_search_markdown_path(self) -> Path:
+        return self.reports_dir / "constant_search.md"
 
     @property
     def deployment_manifest_path(self) -> Path:

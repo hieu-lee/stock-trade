@@ -98,6 +98,19 @@ def _compile_actions(
         symbol = str(row.symbol)
         close_price = float(row.close)
         utility_score = float(row.utility_score) if pd.notna(row.utility_score) else 0.0
+        risk_probability = float(row.risk_probability) if pd.notna(row.risk_probability) else np.nan
+        regime_probability = float(row.regime_probability) if pd.notna(row.regime_probability) else np.nan
+        regime_anchor_probability = (
+            float(row.regime_anchor_probability)
+            if hasattr(row, "regime_anchor_probability") and pd.notna(row.regime_anchor_probability)
+            else regime_probability
+        )
+        regime_participation_probability = (
+            float(row.regime_participation_probability)
+            if hasattr(row, "regime_participation_probability") and pd.notna(row.regime_participation_probability)
+            else 1.0
+        )
+        atr_pct = float(row.atr_pct) if hasattr(row, "atr_pct") and pd.notna(row.atr_pct) else np.nan
         current_weight = float(row.current_weight) if hasattr(row, "current_weight") and pd.notna(row.current_weight) else 0.0
         target_weight = float(row.target_weight) if pd.notna(row.target_weight) else 0.0
         weight_delta = target_weight - current_weight
@@ -114,18 +127,84 @@ def _compile_actions(
         rationale = "Weight change is too small to trade today."
         next_qty = current_qty
 
+        volatility_stop_pct = max(
+            config.stop_loss_pct * 0.75,
+            policy.atr_stop_multiple * atr_pct if pd.notna(atr_pct) and atr_pct > 0 else 0.0,
+        )
+        regime_exit_threshold = max(policy.defensive_threshold - config.regime_exit_buffer, 0.0)
+        risk_exit_triggered = pd.notna(risk_probability) and risk_probability >= policy.risk_exit_threshold
+        defensive_trim_triggered = (
+            current_qty > 0
+            and (
+                (pd.notna(risk_probability) and risk_probability >= policy.risk_reject_threshold)
+                or (pd.notna(regime_anchor_probability) and regime_anchor_probability <= regime_exit_threshold)
+            )
+            and utility_score < policy.add_threshold
+        )
+        volatility_stop_triggered = (
+            current_qty > 0
+            and holding_days >= config.min_holding_days
+            and pnl_pct <= -volatility_stop_pct
+        )
+        weak_regime_exit_triggered = (
+            current_qty > 0
+            and pd.notna(regime_anchor_probability)
+            and regime_anchor_probability <= regime_exit_threshold
+            and utility_score <= policy.trim_threshold
+        )
         force_exit = (
             current_qty > 0
             and (
                 holding_days >= config.max_holding_days
-                or (holding_days >= config.min_holding_days and pnl_pct <= -config.stop_loss_pct)
+                or risk_exit_triggered
+                or volatility_stop_triggered
+                or weak_regime_exit_triggered
                 or (pnl_pct >= config.take_profit_pct and utility_score < policy.add_threshold - config.hold_buffer)
                 or utility_score <= policy.exit_threshold - config.hold_buffer
             )
         )
 
         if force_exit:
-            if (
+            if risk_exit_triggered:
+                if sellable_qty > 0:
+                    action = "EXIT" if sellable_qty >= current_qty else "TRIM"
+                    next_qty = current_qty - sellable_qty
+                    rationale = (
+                        "Downside risk spiked above the emergency exit threshold; only the settled shares can be sold today."
+                        if sellable_qty < current_qty
+                        else "Downside risk spiked above the emergency exit threshold, so the position is being exited."
+                    )
+                else:
+                    action = "HOLD"
+                    next_qty = current_qty
+                    rationale = "Downside risk spiked, but the position is locked by settlement today."
+            elif volatility_stop_triggered:
+                if sellable_qty > 0:
+                    action = "EXIT" if sellable_qty >= current_qty else "TRIM"
+                    next_qty = current_qty - sellable_qty
+                    rationale = (
+                        "The position breached its volatility-adjusted stop, but only the settled shares can be sold today."
+                        if sellable_qty < current_qty
+                        else "The position breached its volatility-adjusted stop and is being exited."
+                    )
+                else:
+                    action = "HOLD"
+                    next_qty = current_qty
+                    rationale = "The position breached its volatility-adjusted stop, but the shares are still unsettled."
+            elif weak_regime_exit_triggered:
+                if sellable_qty > 0:
+                    action = "EXIT" if sellable_qty >= current_qty else "TRIM"
+                    next_qty = current_qty - sellable_qty
+                    rationale = (
+                        "Market regime deteriorated into defense, but only the settled shares can be sold today."
+                        if sellable_qty < current_qty
+                        else "Market regime deteriorated into defense, so the position is being exited."
+                    )
+                else:
+                    action = "HOLD"
+                    next_qty = current_qty
+                    rationale = "Market regime deteriorated, but the shares are still unsettled today."
+            elif (
                 pnl_pct >= config.take_profit_pct
                 and holding_days >= config.min_holding_days
                 and utility_score > policy.exit_threshold
@@ -189,24 +268,38 @@ def _compile_actions(
             and target_qty < current_qty
             and abs(weight_delta) > min_trade_weight_delta
             and (
+                defensive_trim_triggered
+                or
                 utility_score <= policy.trim_threshold + config.trim_buffer
                 or target_weight <= current_weight * 0.7
             )
         ):
-            desired_reduction = max(current_qty - target_qty, 0)
+            defensive_reduction = max(_round_lot(current_qty * 0.5, lot_size=config.lot_size), min(current_qty, config.lot_size))
+            desired_reduction = max(current_qty - target_qty, defensive_reduction if defensive_trim_triggered else 0)
             executable_reduction = min(desired_reduction, sellable_qty)
             if executable_reduction > 0:
                 action = "TRIM"
                 next_qty = current_qty - executable_reduction
-                rationale = (
-                    "The optimizer prefers a smaller weight, but settlement limits how much can be sold today."
-                    if executable_reduction < desired_reduction
-                    else "The optimizer prefers a meaningfully smaller weight for this position."
-                )
+                if defensive_trim_triggered:
+                    rationale = (
+                        "Risk/regime conditions weakened, but settlement limits how much can be de-risked today."
+                        if executable_reduction < desired_reduction
+                        else "Risk/regime conditions weakened, so the position is being cut faster than the optimizer alone would require."
+                    )
+                else:
+                    rationale = (
+                        "The optimizer prefers a smaller weight, but settlement limits how much can be sold today."
+                        if executable_reduction < desired_reduction
+                        else "The optimizer prefers a meaningfully smaller weight for this position."
+                    )
             else:
                 action = "HOLD"
                 next_qty = current_qty
-                rationale = "The position should be trimmed, but the shares are still unsettled."
+                rationale = (
+                    "Risk/regime conditions weakened, but the shares are still unsettled."
+                    if defensive_trim_triggered
+                    else "The position should be trimmed, but the shares are still unsettled."
+                )
 
         delta_qty = next_qty - current_qty
         if action == "TRIM" and next_qty <= 0:
@@ -236,8 +329,10 @@ def _compile_actions(
                 "avg_cost": avg_cost,
                 "reference_price": close_price,
                 "utility_score": utility_score,
-                "risk_probability": float(row.risk_probability) if pd.notna(row.risk_probability) else np.nan,
-                "regime_probability": float(row.regime_probability) if pd.notna(row.regime_probability) else np.nan,
+                "risk_probability": risk_probability,
+                "regime_probability": regime_probability,
+                "regime_anchor_probability": regime_anchor_probability,
+                "regime_participation_probability": regime_participation_probability,
                 "rationale": rationale,
             }
         )
@@ -254,8 +349,10 @@ def _compile_actions(
                     "reference_price": close_price,
                     "target_weight": target_weight,
                     "utility_score": utility_score,
-                    "risk_probability": float(row.risk_probability) if pd.notna(row.risk_probability) else np.nan,
-                    "regime_probability": float(row.regime_probability) if pd.notna(row.regime_probability) else np.nan,
+                    "risk_probability": risk_probability,
+                    "regime_probability": regime_probability,
+                    "regime_anchor_probability": regime_anchor_probability,
+                    "regime_participation_probability": regime_participation_probability,
                     "rationale": rationale,
                 }
             )
@@ -276,6 +373,8 @@ def _compile_actions(
                 "utility_score",
                 "risk_probability",
                 "regime_probability",
+                "regime_anchor_probability",
+                "regime_participation_probability",
                 "rationale",
             ]
         )

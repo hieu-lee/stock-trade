@@ -101,7 +101,8 @@ def _build_benchmark_features(benchmarks: pd.DataFrame, config: TradingBotConfig
     frame["benchmark_forward_return_20d"] = safe_divide(frame["close"].shift(-20), frame["open"].shift(-1)) - 1.0
     frame["benchmark_forward_min_10d"] = safe_divide(_future_window_stat(frame["low"], 10, "min"), frame["open"].shift(-1)) - 1.0
     frame["target_regime"] = (
-        (frame["benchmark_forward_return_20d"] > 0.03) & (frame["benchmark_forward_min_10d"] > -0.06)
+        (frame["benchmark_forward_return_20d"] > float(config.regime_target_return_threshold))
+        & (frame["benchmark_forward_min_10d"] > float(config.regime_target_drawdown_threshold))
     ).astype(float)
     frame.loc[frame["benchmark_forward_return_20d"].isna(), "target_regime"] = np.nan
     return frame[
@@ -598,13 +599,28 @@ def _attach_targets(frame: pd.DataFrame, benchmark_panel: pd.DataFrame, config: 
         panel = panel.merge(benchmark_targets, on="date", how="left")
     panel["forward_excess_return_10d"] = panel["forward_return_10d"] - panel["benchmark_forward_return_10d"]
     panel["forward_excess_return_20d"] = panel["forward_return_20d"] - panel["benchmark_forward_return_20d"]
-    panel["target_alpha_rank_10d"] = panel.groupby("date")["forward_excess_return_10d"].rank(pct=True, na_option="keep")
-    panel["target_alpha_rank_20d"] = panel.groupby("date")["forward_excess_return_20d"].rank(pct=True, na_option="keep")
-    panel["target_alpha_blend"] = panel["target_alpha_rank_10d"] * 0.35 + panel["target_alpha_rank_20d"] * 0.65
+    panel["forward_downside_penalty_10d"] = (-panel["forward_min_return_10d"]).clip(lower=0.0)
+    panel["target_alpha_raw_10d"] = panel["forward_excess_return_10d"]
+    panel["target_alpha_raw_20d"] = panel["forward_excess_return_20d"]
+    panel["target_alpha_rank_10d"] = panel.groupby("date")["target_alpha_raw_10d"].rank(pct=True, na_option="keep")
+    panel["target_alpha_rank_20d"] = panel.groupby("date")["target_alpha_raw_20d"].rank(pct=True, na_option="keep")
+    short_weight = float(np.clip(config.alpha_target_short_weight, 0.0, 1.0))
+    long_weight = 1.0 - short_weight
+    panel["target_alpha_blend"] = panel["target_alpha_rank_10d"] * short_weight + panel["target_alpha_rank_20d"] * long_weight
     panel["target_alpha_class"] = (panel["target_alpha_blend"] >= config.alpha_target_quantile).astype(float)
     panel.loc[panel["target_alpha_blend"].isna(), "target_alpha_class"] = np.nan
     panel["target_downside"] = (panel["forward_min_return_10d"] <= -config.stop_loss_pct).astype(float)
     panel.loc[panel["forward_min_return_10d"].isna(), "target_downside"] = np.nan
+    panel["target_regime_participation"] = np.nan
+    participation_mask = (
+        panel["target_regime"].eq(1.0)
+        & panel["forward_excess_return_20d"].notna()
+        & panel["target_downside"].notna()
+    )
+    panel.loc[participation_mask, "target_regime_participation"] = (
+        (panel.loc[participation_mask, "forward_excess_return_20d"] > 0.0)
+        & (panel.loc[participation_mask, "target_downside"] <= 0.0)
+    ).astype(float)
     panel["is_trainable"] = (
         panel["history_ready"]
         & panel["target_alpha_class"].notna()

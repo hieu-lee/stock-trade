@@ -139,8 +139,9 @@ def _execute_actions(
     pending_cash_book = pending_cash.copy()
     logs: list[dict] = []
     closed: list[dict] = []
-    buy_fee_rate = config.buy_transaction_fee_bps / 10_000.0
-    sell_fee_rate = config.sell_transaction_fee_bps / 10_000.0
+    buy_fee_rate = (config.buy_transaction_fee_bps + config.commission_bps) / 10_000.0
+    sell_fee_rate = (config.sell_transaction_fee_bps + config.commission_bps) / 10_000.0
+    slippage_rate = config.slippage_bps / 10_000.0
 
     for row in actions.itertuples(index=False):
         symbol = str(row.symbol)
@@ -157,16 +158,17 @@ def _execute_actions(
 
         if action in {"BUY", "ADD"}:
             desired_qty = int(row.quantity)
+            fill_price = price * (1.0 + slippage_rate)
             affordable_qty = _affordable_quantity(
                 cash=available_cash,
-                price=price,
+                price=fill_price,
                 fee_rate=buy_fee_rate,
                 desired_qty=desired_qty,
                 lot_size=config.lot_size,
             )
             if affordable_qty <= 0:
                 continue
-            notional = affordable_qty * price
+            notional = affordable_qty * fill_price
             fees = notional * buy_fee_rate
             available_cash -= notional + fees
             settle_date = _settlement_date(next_date, calendar_dates, config.buy_settlement_days)
@@ -190,7 +192,7 @@ def _execute_actions(
                     "symbol": symbol,
                     "action": action,
                     "quantity": affordable_qty,
-                    "execution_price": price,
+                    "execution_price": fill_price,
                     "notional": notional,
                     "fees": fees,
                     "cash_after": available_cash,
@@ -201,7 +203,8 @@ def _execute_actions(
         sell_qty = current_qty if action == "EXIT" else min(int(row.quantity), current_qty)
         if sell_qty <= 0:
             continue
-        notional = sell_qty * price
+        fill_price = price * (1.0 - slippage_rate)
+        notional = sell_qty * fill_price
         fees = notional * sell_fee_rate
         proceeds = notional - fees
         settle_date = _settlement_date(next_date, calendar_dates, config.sell_settlement_days)
@@ -217,7 +220,8 @@ def _execute_actions(
         )
         pending_cash_book = pending_cash_row if pending_cash_book.empty else pd.concat([pending_cash_book, pending_cash_row], ignore_index=True)
         avg_cost = float(book.loc[current_idx[0], "avg_cost"]) if current_idx else price
-        pnl_pct = price / avg_cost - 1.0 if avg_cost > 0 else 0.0
+        net_exit_price = proceeds / sell_qty if sell_qty > 0 else fill_price
+        pnl_pct = net_exit_price / avg_cost - 1.0 if avg_cost > 0 else 0.0
         remaining = current_qty - sell_qty
         if current_idx:
             if remaining <= 0:
@@ -231,7 +235,7 @@ def _execute_actions(
                 "action": action,
                 "quantity": sell_qty,
                 "entry_cost": avg_cost,
-                "exit_price": price,
+                "exit_price": net_exit_price,
                 "pnl_pct": pnl_pct,
             }
         )
@@ -243,7 +247,7 @@ def _execute_actions(
                 "symbol": symbol,
                 "action": action,
                 "quantity": sell_qty,
-                "execution_price": price,
+                "execution_price": fill_price,
                 "notional": notional,
                 "fees": fees,
                 "cash_after": available_cash,

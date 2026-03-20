@@ -158,6 +158,42 @@ class FeaturePanelTests(unittest.TestCase):
         self.assertGreater(float(row["latest_dividend_value"]), 0.0)
         self.assertGreater(float(row["upcoming_record_days"]), 0.0)
 
+    def test_build_feature_panel_creates_anchor_conditioned_regime_participation_target(self) -> None:
+        config = TradingBotConfig(project_dir=Path(__file__).resolve().parents[1], symbols=("AAA",), benchmark_symbols=("VNINDEX",))
+        dates = pd.bdate_range("2022-01-03", periods=280)
+        prices = pd.DataFrame(
+            {
+                "symbol": "AAA",
+                "date": dates,
+                "open": np.linspace(10, 40, len(dates)),
+                "high": np.linspace(10.4, 40.4, len(dates)),
+                "low": np.linspace(9.8, 39.8, len(dates)),
+                "close": np.linspace(10.2, 40.2, len(dates)),
+                "volume": np.linspace(1000, 2000, len(dates)),
+                "source": "TEST",
+            }
+        )
+        benchmarks = pd.DataFrame(
+            {
+                "symbol": "VNINDEX",
+                "date": dates,
+                "open": np.linspace(100, 180, len(dates)),
+                "high": np.linspace(100.3, 180.3, len(dates)),
+                "low": np.linspace(99.8, 179.8, len(dates)),
+                "close": np.linspace(100.1, 180.1, len(dates)),
+                "volume": np.linspace(10000, 20000, len(dates)),
+                "source": "TEST",
+            }
+        )
+
+        panel = build_feature_panel(prices=prices, benchmarks=benchmarks, config=config)
+        participation_rows = panel.loc[panel["target_regime_participation"].notna()].copy()
+
+        self.assertIn("target_regime_participation", panel.columns)
+        self.assertFalse(participation_rows.empty)
+        self.assertTrue((participation_rows["target_regime"] == 1.0).all())
+        self.assertTrue((participation_rows["target_regime_participation"] == 1.0).any())
+
 
 if __name__ == "__main__":
     unittest.main()

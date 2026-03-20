@@ -101,6 +101,92 @@ class BacktestTests(unittest.TestCase):
         self.assertEqual(pd.Timestamp(first_sell_a), pd.Timestamp("2026-03-16"))
         self.assertEqual(pd.Timestamp(first_buy_b), pd.Timestamp("2026-03-19"))
 
+    def test_backtest_applies_commission_and_slippage_in_main_path(self) -> None:
+        base_config = TradingBotConfig(
+            project_dir=Path(__file__).resolve().parents[1],
+            symbols=("AAA",),
+            benchmark_symbols=("VNINDEX",),
+            commission_bps=0.0,
+            slippage_bps=0.0,
+            buy_transaction_fee_bps=0.0,
+            sell_transaction_fee_bps=0.0,
+            max_positions=1,
+            max_weight=1.0,
+            optimizer_cash_floor=0.0,
+            buy_score_threshold=0.0,
+            add_score_threshold=0.0,
+            exit_score_threshold=0.0,
+            trim_score_threshold=0.0,
+            min_trade_weight_delta=0.0,
+        )
+        costly_config = TradingBotConfig(
+            project_dir=Path(__file__).resolve().parents[1],
+            symbols=("AAA",),
+            benchmark_symbols=("VNINDEX",),
+            commission_bps=10.0,
+            slippage_bps=15.0,
+            buy_transaction_fee_bps=3.0,
+            sell_transaction_fee_bps=13.0,
+            max_positions=1,
+            max_weight=1.0,
+            optimizer_cash_floor=0.0,
+            buy_score_threshold=0.0,
+            add_score_threshold=0.0,
+            exit_score_threshold=0.0,
+            trim_score_threshold=0.0,
+            min_trade_weight_delta=0.0,
+        )
+        panel = pd.DataFrame(
+            [
+                {
+                    "date": pd.Timestamp("2026-03-09"),
+                    "symbol": "AAA",
+                    "open": 10.0,
+                    "close": 10.0,
+                    "utility_score": 0.95,
+                    "risk_probability": 0.10,
+                    "regime_probability": 0.70,
+                    "alpha_prediction": 0.90,
+                },
+                {
+                    "date": pd.Timestamp("2026-03-10"),
+                    "symbol": "AAA",
+                    "open": 10.5,
+                    "close": 11.0,
+                    "utility_score": 0.95,
+                    "risk_probability": 0.10,
+                    "regime_probability": 0.70,
+                    "alpha_prediction": 0.90,
+                },
+                {
+                    "date": pd.Timestamp("2026-03-11"),
+                    "symbol": "AAA",
+                    "open": 11.0,
+                    "close": 11.5,
+                    "utility_score": 0.20,
+                    "risk_probability": 0.60,
+                    "regime_probability": 0.40,
+                    "alpha_prediction": 0.10,
+                },
+                {
+                    "date": pd.Timestamp("2026-03-12"),
+                    "symbol": "AAA",
+                    "open": 11.3,
+                    "close": 11.3,
+                    "utility_score": 0.10,
+                    "risk_probability": 0.80,
+                    "regime_probability": 0.35,
+                    "alpha_prediction": 0.05,
+                },
+            ]
+        )
+
+        no_cost_result = run_backtest(panel, config=base_config, initial_cash=100_000.0)
+        costly_result = run_backtest(panel, config=costly_config, initial_cash=100_000.0)
+
+        self.assertGreater(no_cost_result.metrics["total_return"], costly_result.metrics["total_return"])
+        self.assertGreater(float(costly_result.actions["fees"].sum()), 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
